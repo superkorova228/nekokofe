@@ -1,6 +1,6 @@
 class_name PauseScreen
 extends Control
-## Пауза: продолжить, начать заново, выйти в меню.
+
 
 signal resumed
 signal restarted

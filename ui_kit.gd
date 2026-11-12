@@ -1,6 +1,6 @@
 class_name UIKit
 extends RefCounted
-## Общие стили и "кирпичики" для экранов меню: кнопки, надписи, рамки, иконки.
+
 
 const DARK := Color("2b1d14")
 const CREAM := Color("fffaf0")

@@ -1,7 +1,6 @@
 class_name TutorialScreen
 extends Control
-## Туториал: 4 карточки, тап = дальше. Картинки рисуются кодом
-## (если в res://art есть спрайты ингредиентов и кота, используются они).
+
 
 signal finished
 
@@ -105,7 +104,7 @@ func _gui_input(event: InputEvent) -> void:
 			finished.emit()
 
 
-# ---------- рисование ----------
+
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.08, 0.05, 0.04, 1.0))
 	for i in PAGES.size():

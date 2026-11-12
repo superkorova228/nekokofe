@@ -1,11 +1,6 @@
 class_name Sfx
 extends Node
-## Звуки и музыка. По умолчанию все эффекты генерируются кодом.
-## Свои файлы: положи в res://audio/ файл с нужным именем (.ogg, .mp3 или .wav), и он заменит звук.
-##   catch, wrong, done, heal, jump, hit, warn, start, over, click  - короткие эффекты (лучше .wav)
-##   music_game  - музыка геймплея (зацикливается; лучше .ogg или .mp3)
-##   menu_sleep  - звук спящего кота в меню (зацикливается; лучше .ogg или .mp3)
-## Если файла нет: эффекты генерируются кодом, музыка и сон просто молчат.
+
 
 static var instance: Sfx = null
 
@@ -160,7 +155,7 @@ func _kill(t: Tween) -> void:
 		t.kill()
 
 
-# ---------- генерируемые звуки ----------
+
 static func _generated(key: String) -> AudioStream:
 	match key:
 		"catch":

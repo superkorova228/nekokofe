@@ -1,5 +1,5 @@
 extends Node
-## Autoload "SaveData": прогресс и настройки. Файл: user://save.json
+
 
 signal coins_changed(total: int)
 

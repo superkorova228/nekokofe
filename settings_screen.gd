@@ -1,6 +1,6 @@
 class_name SettingsScreen
 extends Control
-## Настройки: звук и вибрация (сохраняются в SaveData).
+
 
 signal closed
 

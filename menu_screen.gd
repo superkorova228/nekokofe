@@ -1,16 +1,17 @@
 class_name MenuScreen
 extends Control
-## Главное меню: тап в любом месте = играть. По углам: монеты, настройки, помощь.
-## Кот и камера живут в игровой сцене (main.gd), здесь только интерфейс поверх.
+
 
 signal play_pressed
 signal settings_pressed
 signal help_pressed
+signal shop_pressed
 
 var top_inset: float = 0.0   # отступ сверху под вырез камеры (ставит main.gd)
 var coins: int = 0
 
 var _hint: Label
+var _coin_label: Label
 var _t: float = 0.0
 
 
@@ -65,8 +66,26 @@ func _ready() -> void:
 
 	var bottom := HBoxContainer.new()
 	col.add_child(UIKit.pass_through(bottom))
+	
+		# монеты в меню обновляются сразу после покупки в магазине
+	_coin_label = coin_label
+	SaveData.coins_changed.connect(_on_coins_changed)
 
+	# кнопка SHOP по центру внизу (в полосе пола, под ногами кота)
+	var shop := UIKit.button("SHOP", Vector2(380, 110), 60)
+	shop.pressed.connect(func() -> void: shop_pressed.emit())
+	add_child(shop)
+	shop.anchor_left = 0.5
+	shop.anchor_right = 0.5
+	shop.anchor_top = 1.0
+	shop.anchor_bottom = 1.0
+	shop.offset_left = -190.0
+	shop.offset_right = 190.0
+	shop.offset_top = -260.0
+	shop.offset_bottom = -150.0
 
+func _on_coins_changed(total: int) -> void:
+	_coin_label.text = "%d" % total
 
 func _process(delta: float) -> void:
 	_t += delta

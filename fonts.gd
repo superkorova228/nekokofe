@@ -1,7 +1,6 @@
 class_name Fonts
 extends RefCounted
-## Шрифты игры. Файлы кладём в res://fonts/ и называем font_main и font_title
-## (расширение .ttf, .otf или .woff2). Если файла нет, берётся стандартный шрифт Godot.
+
 
 static var _main: Font = null
 static var _title: Font = null
