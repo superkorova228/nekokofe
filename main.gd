@@ -23,7 +23,7 @@ const DEBUG_INSET := 0.0
 
 const START_LIVES := 3
 const FALL_SPEED_START := 460.0
-const FALL_SPEED_MAX := 1840.0
+const FALL_SPEED_MAX := 1460.0
 const FALL_SPEED_STEP := 128.0
 const SPAWN_START := 1.1
 const SPAWN_MIN := 0.6
@@ -34,39 +34,51 @@ const WRONG_PENALTY := 3.0
 const NEEDED_GUARANTEE := 2.2
 const NEEDED_CHANCE := 0.4
 const MAX_RECIPE := 5
-const KINDS_TOTAL := 8        # всего ингредиентов
-const START_KINDS := 5        # доступно в начале
-const UNLOCK_EVERY := 4       # новый ингредиент каждые N заказов
+const KINDS_TOTAL := 8        
+const START_KINDS := 5        
+const UNLOCK_EVERY := 4       
 const HEAL_EVERY_COMBO := 4
 
 const BARREL_R := 46.0
-const BARREL_SPRITE_K := 1.5     # размер спрайта бочки относительно BARREL_R (1.0 = диаметр 2*BARREL_R)
-const BARREL_FROM_ORDER := 3     # с какого заказа появляются наземные бочки
-const AIR_BARREL_FROM_ORDER := 5 # с какого заказа появляются воздушные бочки
-const DROP_BARREL_FROM_ORDER := 8 # с какого заказа появляются падающие бочки
-
+const BARREL_SPRITE_K := 1.5     
+const BARREL_FROM_ORDER := 3
 const BARREL_EVERY_START := 6.0
 const BARREL_EVERY_MIN := 3.2
 const BARREL_EVERY_STEP := 0.25
-
-# Настройки скорости бочек (теперь ускоряются независимо и заметно быстрее)
-const BARREL_SPEED_START := 600.0
-const BARREL_SPEED_MAX := 1200.0
-const BARREL_SPEED_STEP := 55.0  # Увеличь или уменьши этот шаг для настройки скорости разгона
-
+const BARREL_SPEED_START := 650.0
+const BARREL_SPEED_MAX := 1000.0
+const BARREL_SPEED_STEP := 30.0
 const WARN_TIME := 1.0
 const INVULN_TIME := 1.2
 const FAIR_WINDOW := 0.6
 
-const SPRITE_K := 2.3             # размер спрайта ингредиента относительно радиуса
-const CAT_SPRITE_EXTRA := 0.0     # спрайт кота = CAT_H + это (уши)
-const CAT_FEET_SINK := 12.0       # на сколько px кот "проваливается" в пол (только картинка)
-const CLIENT_SPRITE := 190.0      # размер клиента в облачке
+const DROP_BARREL_FROM_ORDER := 6   
+const DROP_EVERY_START := 9.0       
+const DROP_EVERY_MIN := 4.5         
+const DROP_EVERY_STEP := 0.3        
+const DROP_WARN_TIME := 0.9         
+const DROP_SPEED_K := 1.8           
+const DROP_SPEED_MAX := 1700.0
+
+const AIR_BARREL_FROM_ORDER := 9    
+const AIR_EVERY_START := 11.0
+const AIR_EVERY_MIN := 6.0
+const AIR_EVERY_STEP := 0.3
+const AIR_WARN_TIME := 1.1
+const AIR_SPEED_K := 0.85           
+const AIR_CLEAR := 28.0             
+const AIR_HOP := 50.0               
+const AIR_HOP_LEN := 380.0          
+
+const SPRITE_K := 2.3             
+const CAT_SPRITE_EXTRA := 0.0     
+const CAT_FEET_SINK := 12.0       
+const CLIENT_SPRITE := 190.0      
 const ING_FILES := {0: "coffee", 1: "milk", 2: "blueberry", 3: "strawberry", 4: "caramel", 5: "chocolate", 6: "marshmallow", 7: "vanilla"}
 
-const MENU_ZOOM := 2.5            # во сколько раз камера приближена в меню
-const MENU_CAM_BOTTOM := 100.0    # центр кадра меню: столько px от нижнего края
-const WAKE_TIME := 0.5            # кот подпрыгивает при пробуждении, сек
+const MENU_ZOOM := 2.5            
+const MENU_CAM_BOTTOM := 100.0    
+const WAKE_TIME := 0.5            
 
 class Item:
 	var lane: int = 0
@@ -81,13 +93,23 @@ class FloatText:
 	var t: float = 0.0
 
 class Barrel:
-	var type: int = 0       # 0: наземная, 1: воздушная, 2: падающая сверху
-	var x: float = 0.0      # для боковых бочек
-	var lane: int = 0       # для падающей бочки
-	var y: float = 0.0      # для падающей бочки
+	var x: float = 0.0
 	var dir: int = 1
 	var warn: float = 1.0
 	var hit: bool = false
+	
+class AirBarrel:
+	var x: float = 0.0
+	var dir: int = 1
+	var warn: float = 1.0
+	var hit: bool = false
+
+class DropBarrel:
+	var lane: int = 0
+	var y: float = 0.0
+	var warn: float = 1.0
+	var hit: bool = false
+	var passed: bool = false
 
 ## cостояния
 var state: State = State.MENU
@@ -101,6 +123,8 @@ var jump_buffer: float = 0.0
 var items: Array[Item] = []
 var popups: Array[FloatText] = []
 var barrels: Array[Barrel] = []
+var air_barrels: Array[AirBarrel] = []
+var drops: Array[DropBarrel] = []
 var tower: Array = []
 var recipe: Array = []
 var recipe_idx: int = 0
@@ -117,12 +141,15 @@ var best_combo: int = 0
 
 var spawn_timer: float = 0.5
 var barrel_timer: float = 2.5
+var drop_timer: float = 3.0
+var air_timer: float = 3.0
+var drop_hint_done: bool = false   
+var air_hint_done: bool = false    
 var since_needed: float = 0.0
 var last_lane: int = -1
 var lane_repeat: int = 0
 var last_kind: int = -1
 var kind_repeat: int = 0
-var last_barrel_type: int = -1      # для контроля вариативности бочек
 
 var flash_t: float = 0.0
 var flash_col: Color = Color.WHITE
@@ -443,6 +470,8 @@ func reset_world() -> void:
 	items.clear()
 	popups.clear()
 	barrels.clear()
+	air_barrels.clear()
+	drops.clear()
 	tower.clear()
 	lane = 1
 	cat_x = lane_cx(lane)
@@ -452,7 +481,6 @@ func reset_world() -> void:
 	flash_t = 0.0
 	red_t = 0.0
 	shake_t = 0.0
-	last_barrel_type = -1
 	new_order()
 
 
@@ -586,6 +614,8 @@ func start_shift() -> void:
 	items.clear()
 	popups.clear()
 	barrels.clear()
+	air_barrels.clear()
+	drops.clear()
 	lane = 1
 	cat_x = lane_cx(lane)
 	jump_t = -1.0
@@ -593,11 +623,12 @@ func start_shift() -> void:
 	invuln_t = 0.0
 	spawn_timer = 0.6
 	barrel_timer = 2.5
+	drop_timer = 3.0
+	air_timer = 3.0
 	last_lane = -1
 	lane_repeat = 0
 	last_kind = -1
 	kind_repeat = 0
-	last_barrel_type = -1
 	new_order()
 	state = State.PLAYING
 	state_time = 0.0
@@ -688,7 +719,6 @@ func fall_speed() -> float:
 	return minf(FALL_SPEED_START + FALL_SPEED_STEP * orders_done, FALL_SPEED_MAX)
 
 
-# Скорость боковых бочек теперь растет независимо через собственный шаг BARREL_SPEED_STEP
 func barrel_speed() -> float:
 	return minf(BARREL_SPEED_START + BARREL_SPEED_STEP * orders_done, BARREL_SPEED_MAX)
 
@@ -727,6 +757,7 @@ func update_game(delta: float) -> void:
 		i -= 1
 
 	update_barrels(delta)
+	update_hazards(delta)
 	if state != State.PLAYING:
 		return
 
@@ -737,48 +768,22 @@ func update_game(delta: float) -> void:
 func update_barrels(delta: float) -> void:
 	var vp: Vector2 = get_viewport_rect().size
 	var bs: float = barrel_speed()
-	var fy: float = floor_y()
-	var cy: float = catch_y()
+	var lift: float = jump_offset()
 	var i: int = barrels.size() - 1
 	while i >= 0:
 		var b: Barrel = barrels[i]
 		if b.warn > 0.0:
 			b.warn -= delta
 		else:
-			if b.type == 2:
-				# Падающая бочка сверху (падает быстрее ингредиентов)
-				var fall_spd: float = fall_speed() * 1.5
-				b.y += fall_spd * delta
-				var close_vertical: bool = absf(b.y - cy) < BARREL_R * 1.2
-				if not b.hit and invuln_t <= 0.0 and b.lane == lane and close_vertical:
-					if jump_t < 0.0:  # Бьет только если кот на земле (прыжок спасает)
-						b.hit = true
-						hit_by_barrel()
-						if state != State.PLAYING:
-							return
-				if b.y > fy + BARREL_R * 2.0:
-					barrels.remove_at(i)
-			else:
-				# Боковые бочки (обычные и воздушные)
-				b.x += b.dir * bs * delta
-				var close: bool = absf(b.x - cat_x) < CAT_W * 0.5 + BARREL_R * 0.8
-				if not b.hit and invuln_t <= 0.0 and close:
-					if b.type == 0:
-						# Обычная наземная: бьет, если кот на земле
-						if jump_t < 0.0:
-							b.hit = true
-							hit_by_barrel()
-							if state != State.PLAYING:
-								return
-					elif b.type == 1:
-						# Воздушная бочка: бьет, ТОЛЬКО если кот в воздухе
-						if jump_t >= 0.0:
-							b.hit = true
-							hit_by_barrel()
-							if state != State.PLAYING:
-								return
-				if b.x < -BARREL_R * 3.0 or b.x > vp.x + BARREL_R * 3.0:
-					barrels.remove_at(i)
+			b.x += b.dir * bs * delta
+			var close: bool = absf(b.x - cat_x) < CAT_W * 0.5 + BARREL_R * 0.8
+			if not b.hit and invuln_t <= 0.0 and close and lift < BARREL_R * 1.6:
+				b.hit = true
+				hit_by_barrel()
+				if state != State.PLAYING:
+					return
+			if b.x < -BARREL_R * 3.0 or b.x > vp.x + BARREL_R * 3.0:
+				barrels.remove_at(i)
 		i -= 1
 
 
@@ -810,70 +815,29 @@ func conflicts(b: Barrel, lane_i: int, arrive_t: float, bs: float) -> bool:
 
 
 func try_spawn_barrel() -> void:
-	if barrels.size() >= 3:
+	if barrels.size() >= 2:
 		barrel_timer = 0.5
 		return
-	
-	# Собираем список доступных типов бочек в зависимости от прогресса
-	var available_types: Array[int] = []
-	if orders_done >= BARREL_FROM_ORDER:
-		available_types.append(0) # Наземная
-	if orders_done >= AIR_BARREL_FROM_ORDER:
-		available_types.append(1) # Воздушная
-	if orders_done >= DROP_BARREL_FROM_ORDER:
-		available_types.append(2) # Падающая
-	
-	if available_types.is_empty():
+	if not air_barrels.is_empty():   
+		barrel_timer = 0.5
 		return
-
-	# Исключаем тип предыдущей бочки для максимальной вариативности
-	if available_types.size() > 1 and last_barrel_type != -1:
-		var filtered = available_types.filter(func(t): return t != last_barrel_type)
-		if not filtered.is_empty():
-			available_types = filtered
-
-	var b_type: int = available_types[randi() % available_types.size()]
-	last_barrel_type = b_type
-
 	var vp: Vector2 = get_viewport_rect().size
 	var b := Barrel.new()
-	b.type = b_type
-	
-	if b.type == 2:
-		b.lane = randi() % 3
-		b.y = top_h() - BARREL_R * 2.0
-		b.warn = 0.9
-	else:
-		b.dir = 1 if randf() < 0.5 else -1
-		b.x = -BARREL_R * 2.0 if b.dir > 0 else vp.x + BARREL_R * 2.0
-		b.warn = WARN_TIME
+	b.dir = 1 if randf() < 0.5 else -1
+	b.x = -BARREL_R * 2.0 if b.dir > 0 else vp.x + BARREL_R * 2.0
+	b.warn = WARN_TIME
 
-	# Проверка конфликтов с нужным ингредиентом
-	if b.type == 0:
-		var need: int = recipe[recipe_idx]
-		var fs: float = fall_speed()
-		var bs: float = barrel_speed()
-		var cy: float = catch_y()
-		for it in items:
-			if it.passed or it.kind != need:
-				continue
-			var arrive: float = (cy - it.y) / fs
-			if conflicts(b, it.lane, arrive, bs):
-				barrel_timer = 0.25
-				return
-	elif b.type == 2:
-		var need: int = recipe[recipe_idx]
-		var fs: float = fall_speed()
-		var drop_fs: float = fs * 1.5
-		var cy: float = catch_y()
-		var barrel_arrive: float = b.warn + (cy - (top_h() - BARREL_R * 2.0)) / drop_fs
-		for it in items:
-			if it.passed or it.lane != b.lane or it.kind != need:
-				continue
-			var item_arrive: float = (cy - it.y) / fs
-			if absf(barrel_arrive - item_arrive) < FAIR_WINDOW:
-				barrel_timer = 0.25
-				return
+	var need: int = recipe[recipe_idx]
+	var fs: float = fall_speed()
+	var bs: float = barrel_speed()
+	var cy: float = catch_y()
+	for it in items:
+		if it.passed or it.kind != need:
+			continue
+		var arrive: float = (cy - it.y) / fs
+		if conflicts(b, it.lane, arrive, bs):
+			barrel_timer = 0.25
+			return
 
 	barrels.append(b)
 	sfx("warn")
@@ -919,16 +883,13 @@ func spawn_item() -> void:
 	if k == recipe[recipe_idx] or k == want:
 		var arrive: float = (catch_y() - (top_h() - ITEM_R * 2.0)) / fall_speed()
 		for b in barrels:
-			if b.type == 0 and conflicts(b, l, arrive, barrel_speed()):
+			if conflicts(b, l, arrive, barrel_speed()):
 				k = (k + 1 + randi() % 4) % 5
 				break
-			if b.type == 2 and b.lane == l:
-				var drop_fs: float = fall_speed() * 1.5
-				var cy: float = catch_y()
-				var barrel_arrive: float = b.warn + (cy - (top_h() - BARREL_R * 2.0)) / drop_fs
-				if absf(barrel_arrive - arrive) < FAIR_WINDOW:
-					k = (k + 1 + randi() % 4) % 5
-					break
+		for d in drops:
+			if d.lane == l and absf(drop_arrive_time(d) - arrive) < FAIR_WINDOW:
+				k = (k + 1 + randi() % 4) % 5
+				break
 
 	if k == last_kind:
 		kind_repeat += 1
@@ -1111,16 +1072,21 @@ func draw_world() -> void:
 
 	for it in items:
 		draw_ingredient(it.kind, Vector2(lane_cx(it.lane), it.y), ITEM_R)
+		
+		draw_hazards()
 
 
 func draw_cat(_left_x: float, top: float, cat_c: Color) -> void:
 	var t: float = Time.get_ticks_msec() / 1000.0
 	var sleeping: bool = state == State.MENU
+	# моргание: два несовпадающих периода, чтобы не было как у метронома
 	var blinking: bool = fposmod(t, 4.3) > 4.18 or fposmod(t, 6.7) > 6.58
+	# idle-анимация: дыхание и лёгкое покачивание (во сне медленнее)
 	var br: float = sin(t * (1.4 if sleeping else 2.6))
 	var sx: float = 1.0 - 0.018 * br
 	var sy: float = 1.0 + 0.03 * br
 	var rot: float = 0.02 * sin(t * (0.8 if sleeping else 1.7))
+	# растяжение в прыжке и при пробуждении
 	var stretch: float = 0.0
 	if jump_t >= 0.0:
 		stretch = sin(PI * jump_t / JUMP_TIME)
@@ -1132,14 +1098,16 @@ func draw_cat(_left_x: float, top: float, cat_c: Color) -> void:
 	var feet := Vector2(cat_x, top + CAT_H + CAT_FEET_SINK)
 	draw_set_transform(feet, rot, Vector2(sx, sy))
 	if cat_tex != null:
+		# размер берём от открытого спрайта: закрытый рисуется в тот же прямоугольник, кот не "дёргается"
 		var h: float = CAT_H + CAT_SPRITE_EXTRA
 		var tex: Texture2D = Skins.texture(SaveData.selected_skin, sleeping or blinking, cat_tex, cat_closed_tex)
+		# масштаб считаем от обычного кота: у скина с шляпой выше только полотно, а сам кот того же размера
 		var sz: Vector2 = tex.get_size() * (h / cat_tex.get_size().y)
 		var tint := Color.WHITE
 		if flash_t > 0.0 and flash_col != Color.WHITE:
 			tint = Color(1.0, 0.5, 0.5)
 		elif sleeping and cat_closed_tex == null:
-			tint = Color(0.78, 0.78, 0.9)
+			tint = Color(0.78, 0.78, 0.9)   # нет спрайта со сном: просто затемняем
 		tint *= Skins.tint(SaveData.selected_skin)
 		tint.a = cat_c.a
 		draw_texture_rect(tex, Rect2(Vector2(-sz.x * 0.5, -sz.y), sz), false, tint)
@@ -1159,7 +1127,7 @@ func draw_cat(_left_x: float, top: float, cat_c: Color) -> void:
 			draw_circle(Vector2(32, -CAT_H + 60), 10, col_dark)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-## Насколько скин выше обычного кота (шляпа)
+## Насколько скин выше обычного кота (шляпа): на столько поднимается башня
 func cat_hat_height() -> float:
 	if cat_tex == null:
 		return 0.0
@@ -1179,71 +1147,31 @@ func draw_sleep_z(top: float) -> void:
 func draw_barrels() -> void:
 	var vp: Vector2 = get_viewport_rect().size
 	var fy: float = floor_y()
-	var lane_w: float = vp.x / 3.0
-	
+	var red := Color(0.9, 0.28, 0.3)
 	for b in barrels:
 		if b.warn > 0.0:
-			if b.type == 2:
-				# Предупреждение для падающей бочки: красный столбец в нужной дорожке и '!' сверху
-				var lx: float = b.lane * lane_w
-				draw_rect(Rect2(lx, top_h(), lane_w, fy - top_h()), Color(0.9, 0.2, 0.2, 0.25 + 0.15 * pulse()))
-				var top_pos := Vector2(lx + lane_w * 0.5, top_h() + 40.0)
-				text_at("!", Vector2(top_pos.x - 50.0, top_pos.y), 54, Color("e5484d"), HORIZONTAL_ALIGNMENT_CENTER, 100.0, true)
-			else:
-				var ex: float = 80.0 if b.dir > 0 else vp.x - 80.0
-				var c := Vector2(ex, fy - 90.0)
-				var a: float = 0.55 + 0.45 * pulse()
-				var tri := PackedVector2Array([c + Vector2(0, -56), c + Vector2(54, 36), c + Vector2(-54, 36), c + Vector2(0, -56)])
-				
-				if b.type == 1:
-					# Воздушная бочка: сине-голубой предупреждающий знак
-					draw_colored_polygon(tri, Color(0.2, 0.6, 0.9, a))
-					draw_polyline(tri, col_dark, 6.0)
-					text_at("!", Vector2(c.x - 100.0, c.y + 28.0), 64, col_dark, HORIZONTAL_ALIGNMENT_CENTER, 200.0, false)
-				else:
-					# Обычная наземная бочка
-					draw_colored_polygon(tri, Color(0.94, 0.63, 0.12, a))
-					draw_polyline(tri, col_dark, 6.0)
-					text_at("!", Vector2(c.x - 100.0, c.y + 28.0), 64, col_dark, HORIZONTAL_ALIGNMENT_CENTER, 200.0, false)
+			var ex: float = 80.0 if b.dir > 0 else vp.x - 80.0
+			var c := Vector2(ex, fy - 90.0)
+			var a: float = 0.55 + 0.45 * pulse()
+			var tri := PackedVector2Array([c + Vector2(0, -56), c + Vector2(54, 36), c + Vector2(-54, 36), c + Vector2(0, -56)])
+			draw_colored_polygon(tri, Color(0.94, 0.63, 0.12, a))
+			draw_polyline(tri, col_dark, 6.0)
+			text_at("!", Vector2(c.x - 100.0, c.y + 28.0), 64, col_dark, HORIZONTAL_ALIGNMENT_CENTER, 200.0, false)
+		elif barrel_tex != null:
+			# спрайт бочки: катится и вращается вокруг центра картинки
+			draw_set_transform(Vector2(b.x, fy - BARREL_R), b.x / BARREL_R, Vector2.ONE)
+			draw_fit(barrel_tex, Vector2.ZERO, BARREL_R * 2.0 * BARREL_SPRITE_K, Color(1, 1, 1, 0.35 if b.hit else 1.0))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		else:
-			if b.type == 2:
-				# Отрисовка падающей бочки
-				var pos := Vector2(lane_cx(b.lane), b.y)
-				var al: float = 0.35 if b.hit else 1.0
-				if barrel_tex != null:
-					draw_set_transform(pos, 0.0, Vector2.ONE)
-					draw_fit(barrel_tex, Vector2.ZERO, BARREL_R * 2.0 * BARREL_SPRITE_K, Color(0.8, 0.9, 1.0, al))
-					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-				else:
-					draw_circle(pos, BARREL_R, Color(0.1, 0.4, 0.7, al))
-			elif b.type == 1:
-				# Отрисовка воздушной бочки (летит выше головы по дуге с небольшим покачиванием)
-				var air_y: float = fy - CAT_H - 160.0 + sin(b.x * 0.015) * 15.0
-				var pos := Vector2(b.x, air_y)
-				var al: float = 0.35 if b.hit else 1.0
-				if barrel_tex != null:
-					draw_set_transform(pos, b.x / BARREL_R, Vector2.ONE)
-					draw_fit(barrel_tex, Vector2.ZERO, BARREL_R * 2.0 * BARREL_SPRITE_K, Color(0.4, 0.8, 1.0, al))
-					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-				else:
-					draw_circle(pos, BARREL_R, Color(0.2, 0.6, 0.9, al))
-			else:
-				# Обычная наземная бочка
-				var pos := Vector2(b.x, fy - BARREL_R)
-				var al: float = 0.35 if b.hit else 1.0
-				if barrel_tex != null:
-					draw_set_transform(pos, b.x / BARREL_R, Vector2.ONE)
-					draw_fit(barrel_tex, Vector2.ZERO, BARREL_R * 2.0 * BARREL_SPRITE_K, Color(1, 1, 1, al))
-					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-				else:
-					var red := Color(0.9, 0.28, 0.3)
-					var rc := Color(red.r, red.g, red.b, al)
-					draw_circle(pos, BARREL_R, Color(0.23, 0.14, 0.09, al))
-					draw_arc(pos, BARREL_R - 3.0, 0.0, TAU, 40, rc, 6.0)
-					draw_set_transform(pos, b.x / BARREL_R, Vector2.ONE)
-					draw_line(Vector2(-BARREL_R * 0.7, 0.0), Vector2(BARREL_R * 0.7, 0.0), rc, 5.0)
-					draw_line(Vector2(0.0, -BARREL_R * 0.7), Vector2(0.0, BARREL_R * 0.7), rc, 5.0)
-					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			var pos := Vector2(b.x, fy - BARREL_R)
+			var al: float = 0.35 if b.hit else 1.0
+			var rc := Color(red.r, red.g, red.b, al)
+			draw_circle(pos, BARREL_R, Color(0.23, 0.14, 0.09, al))
+			draw_arc(pos, BARREL_R - 3.0, 0.0, TAU, 40, rc, 6.0)
+			draw_set_transform(pos, b.x / BARREL_R, Vector2.ONE)
+			draw_line(Vector2(-BARREL_R * 0.7, 0.0), Vector2(BARREL_R * 0.7, 0.0), rc, 5.0)
+			draw_line(Vector2(0.0, -BARREL_R * 0.7), Vector2(0.0, BARREL_R * 0.7), rc, 5.0)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func draw_client(o: float, ratio: float) -> void:
@@ -1327,6 +1255,7 @@ func draw_hud() -> void:
 	text_at(str(score), Vector2(0, 88 + o), 72, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, vp.x, false)
 	if combo >= 2:
 		text_at("x%d" % mini(combo, 5), Vector2(0, 88 + o), 64, Color("f2b705"), HORIZONTAL_ALIGNMENT_RIGHT, vp.x - 180.0, false)
+	# кнопка паузы (касание обрабатывается в _input)
 	var pr: Rect2 = pause_rect()
 	draw_rect(pr, Color(1, 1, 1, 0.12))
 	if pause_icon_tex != null:
@@ -1367,7 +1296,7 @@ func draw_ingredient(kind: int, pos: Vector2, r: float) -> void:
 			draw_set_transform(pos, -0.25, Vector2.ONE)
 			draw_rect(Rect2(-r * 0.8, -r * 0.8, r * 1.6, r * 1.6), ca(Color("8fd3f4")))
 			draw_rect(Rect2(-r * 0.55, -r * 0.55, r * 0.5, r * 0.5), ca(Color("d9f2fc")))
-		3:  # клубника
+		3:  # клубника: круглая ягода с зелёной шапкой и семечками
 			var red := ca(Color("d62839"))
 			draw_circle(Vector2(0.0, -r * 0.1), r * 0.82, red)
 			draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.62, r * 0.35), Vector2(r * 0.62, r * 0.35), Vector2(0.0, r)]), red)
@@ -1381,21 +1310,195 @@ func draw_ingredient(kind: int, pos: Vector2, r: float) -> void:
 			var gold := ca(Color("f2b705"))
 			draw_circle(Vector2(0.0, r * 0.3), r * 0.7, gold)
 			draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.62, r * 0.05), Vector2(r * 0.62, r * 0.05), Vector2(0.0, -r)]), gold)
-		5:  # шоколад
+		5:  # шоколад: плитка с делениями
 			var choc := ca(Color("4a2814"))
 			var lc := ca(Color("7a4a2c"))
 			draw_rect(Rect2(-r * 0.62, -r * 0.9, r * 1.24, r * 1.8), choc)
 			draw_line(Vector2(0.0, -r * 0.9), Vector2(0.0, r * 0.9), lc, 4.0)
-			draw_line(Vector2(-r * 0.62, -r * 0.3), Vector2(r * 0.62, r * 0.3), lc, 4.0)
+			draw_line(Vector2(-r * 0.62, -r * 0.3), Vector2(r * 0.62, -r * 0.3), lc, 4.0)
 			draw_line(Vector2(-r * 0.62, r * 0.3), Vector2(r * 0.62, r * 0.3), lc, 4.0)
-		6:  # зефир
+		6:  # зефир: розовая капсула
 			var pink := ca(Color("f7a8c8"))
 			draw_circle(Vector2(-r * 0.45, 0.0), r * 0.6, pink)
 			draw_circle(Vector2(r * 0.45, 0.0), r * 0.6, pink)
 			draw_rect(Rect2(-r * 0.45, -r * 0.6, r * 0.9, r * 1.2), pink)
 			draw_circle(Vector2(-r * 0.45, -r * 0.2), r * 0.18, ca(Color("fde0ec")))
-		7:  # корица
+		7:  # корица: оранжевая палочка по диагонали
 			draw_set_transform(pos, 0.6, Vector2.ONE)
 			draw_rect(Rect2(-r * 0.22, -r, r * 0.44, r * 2.0), ca(Color("c2611f")))
 			draw_rect(Rect2(-r * 0.06, -r, r * 0.12, r * 2.0), ca(Color("8a3f12")))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	
+
+func drop_speed() -> float:
+	return minf(fall_speed() * DROP_SPEED_K, DROP_SPEED_MAX)
+
+
+func air_speed() -> float:
+	return barrel_speed() * AIR_SPEED_K
+
+
+func air_bottom(a: AirBarrel) -> float:
+	return CAT_H + AIR_CLEAR + AIR_HOP * absf(sin(a.x / AIR_HOP_LEN * PI))
+
+
+func drop_arrive_time(d: DropBarrel) -> float:
+	return maxf(d.warn, 0.0) + maxf(catch_y() - BARREL_R - d.y, 0.0) / drop_speed()
+
+
+func update_hazards(delta: float) -> void:
+	if orders_done >= DROP_BARREL_FROM_ORDER:
+		drop_timer -= delta
+		if drop_timer <= 0.0:
+			try_spawn_drop()
+	if orders_done >= AIR_BARREL_FROM_ORDER:
+		air_timer -= delta
+		if air_timer <= 0.0:
+			try_spawn_air()
+	update_drops(delta)
+	update_air(delta)
+
+
+func try_spawn_drop() -> void:
+	if not drops.is_empty() or not air_barrels.is_empty():
+		drop_timer = 0.5
+		return
+	var need: int = recipe[recipe_idx]
+	var arrive: float = DROP_WARN_TIME + (catch_y() - BARREL_R - (top_h() - BARREL_R * 2.0)) / drop_speed()
+	var order: Array = [0, 1, 2]
+	order.shuffle()
+	for l in order:
+		var ok: bool = true
+		for it in items:
+			if it.passed or it.lane != l or it.kind != need:
+				continue
+			if absf((catch_y() - it.y) / fall_speed() - arrive) < FAIR_WINDOW:
+				ok = false
+				break
+		if ok:
+			var d := DropBarrel.new()
+			d.lane = l
+			d.warn = DROP_WARN_TIME
+			d.y = top_h() - BARREL_R * 2.0
+			drops.append(d)
+			sfx("warn", 1.4)   # высокий писк
+			drop_timer = maxf(DROP_EVERY_START - DROP_EVERY_STEP * (orders_done - DROP_BARREL_FROM_ORDER), DROP_EVERY_MIN)
+			if not drop_hint_done:
+				drop_hint_done = true
+				add_popup("WATCH THE LANE!", Vector2(get_viewport_rect().size.x * 0.5, 540.0 + ui_off), Color("e5484d"))
+			return
+	drop_timer = 0.3
+
+
+func try_spawn_air() -> void:
+	if not air_barrels.is_empty() or not barrels.is_empty() or not drops.is_empty():
+		air_timer = 0.5
+		return
+	var vp: Vector2 = get_viewport_rect().size
+	var a := AirBarrel.new()
+	a.dir = 1 if randf() < 0.5 else -1
+	a.x = -BARREL_R * 2.0 if a.dir > 0 else vp.x + BARREL_R * 2.0
+	a.warn = AIR_WARN_TIME
+	air_barrels.append(a)
+	sfx("warn", 0.7)   # низкий писк
+	air_timer = maxf(AIR_EVERY_START - AIR_EVERY_STEP * (orders_done - AIR_BARREL_FROM_ORDER), AIR_EVERY_MIN)
+	if not air_hint_done:
+		air_hint_done = true
+		add_popup("DON'T JUMP!", Vector2(vp.x * 0.5, 540.0 + ui_off), Color("b388ff"))
+
+
+func update_drops(delta: float) -> void:
+	var sp: float = drop_speed()
+	var cy: float = catch_y()
+	var fy: float = floor_y()
+	var i: int = drops.size() - 1
+	while i >= 0:
+		var d: DropBarrel = drops[i]
+		if d.warn > 0.0:
+			d.warn -= delta
+		else:
+			d.y += sp * delta
+			if not d.passed and d.y + BARREL_R >= cy:
+				d.passed = true
+				if d.lane == lane and jump_t < 0.0 and invuln_t <= 0.0:
+					d.hit = true
+					hit_by_barrel()
+					if state != State.PLAYING:
+						return
+			if d.y - BARREL_R > fy:
+				drops.remove_at(i)
+		i -= 1
+
+
+func update_air(delta: float) -> void:
+	var vp: Vector2 = get_viewport_rect().size
+	var sp: float = air_speed()
+	var lift: float = jump_offset()
+	var i: int = air_barrels.size() - 1
+	while i >= 0:
+		var a: AirBarrel = air_barrels[i]
+		if a.warn > 0.0:
+			a.warn -= delta
+		else:
+			a.x += a.dir * sp * delta
+			var close: bool = absf(a.x - cat_x) < CAT_W * 0.5 + BARREL_R * 0.8
+			if not a.hit and invuln_t <= 0.0 and close and lift > air_bottom(a) - CAT_H:
+				a.hit = true
+				hit_by_barrel()
+				if state != State.PLAYING:
+					return
+			if a.x < -BARREL_R * 3.0 or a.x > vp.x + BARREL_R * 3.0:
+				air_barrels.remove_at(i)
+		i -= 1
+
+
+func draw_hazards() -> void:
+	var vp: Vector2 = get_viewport_rect().size
+	var fy: float = floor_y()
+	var lane_w: float = vp.x / 3.0
+	for d in drops:
+		var cx: float = lane_cx(d.lane)
+		if d.warn > 0.0:
+			draw_rect(Rect2(cx - lane_w * 0.5, top_h(), lane_w, fy - top_h()), Color(0.9, 0.15, 0.15, 0.10 + 0.14 * pulse()))
+			warn_triangle(Vector2(cx, top_h() + 80.0), Color(0.9, 0.2, 0.2, 0.55 + 0.45 * pulse()))
+		else:
+			draw_hazard_barrel(Vector2(cx, d.y), d.y / BARREL_R, "barrel_drop", Color(0.62, 0.68, 0.82), 0.35 if d.hit else 1.0)
+	for a in air_barrels:
+		var path_y: float = fy - (CAT_H + AIR_CLEAR + AIR_HOP * 0.5) - BARREL_R
+		if a.warn > 0.0:
+			var col := Color(0.72, 0.52, 1.0, 0.6 + 0.4 * pulse())
+			draw_dashed_line(Vector2(0.0, path_y), Vector2(vp.x, path_y), col, 8.0, 22.0)
+			air_warn_sign(Vector2(80.0 if a.dir > 0 else vp.x - 80.0, path_y), Color(0.72, 0.52, 1.0, 0.6 + 0.4 * pulse()))
+		else:
+			draw_hazard_barrel(Vector2(a.x, fy - air_bottom(a) - BARREL_R), a.x / BARREL_R, "barrel_air", Color(0.75, 0.55, 1.0), 0.35 if a.hit else 1.0)
+
+
+func draw_hazard_barrel(pos: Vector2, rot: float, tex_name: String, tint: Color, alpha: float) -> void:
+	draw_set_transform(pos, rot, Vector2.ONE)
+	var own: Texture2D = UIKit.art_texture(tex_name)
+	var base: Texture2D = UIKit.art_texture("barrel")
+	var tc := Color(tint.r, tint.g, tint.b, alpha)
+	if own != null:
+		draw_fit(own, Vector2.ZERO, BARREL_R * 2.0, Color(1, 1, 1, alpha))
+	elif base != null:
+		draw_fit(base, Vector2.ZERO, BARREL_R * 2.0, tc)
+	else:
+		draw_circle(Vector2.ZERO, BARREL_R, Color(0.23, 0.14, 0.09, alpha))
+		draw_arc(Vector2.ZERO, BARREL_R - 3.0, 0.0, TAU, 40, tc, 6.0)
+		draw_line(Vector2(-BARREL_R * 0.7, 0.0), Vector2(BARREL_R * 0.7, 0.0), tc, 5.0)
+		draw_line(Vector2(0.0, -BARREL_R * 0.7), Vector2(0.0, BARREL_R * 0.7), tc, 5.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func warn_triangle(c: Vector2, col: Color) -> void:
+	var tri := PackedVector2Array([c + Vector2(0, -56), c + Vector2(54, 36), c + Vector2(-54, 36), c + Vector2(0, -56)])
+	draw_colored_polygon(tri, col)
+	draw_polyline(tri, col_dark, 6.0)
+	text_at("!", Vector2(c.x - 100.0, c.y + 28.0), 64, col_dark, HORIZONTAL_ALIGNMENT_CENTER, 200.0, false)
+
+
+func air_warn_sign(c: Vector2, col: Color) -> void:
+	draw_circle(c, 58.0, col)
+	draw_arc(c, 58.0, 0.0, TAU, 32, col_dark, 6.0)
+	draw_polyline(PackedVector2Array([c + Vector2(-26, 12), c + Vector2(0, -18), c + Vector2(26, 12)]), Color.WHITE, 9.0)
+	draw_line(c + Vector2(-40, -40), c + Vector2(40, 40), Color(0.9, 0.15, 0.15), 9.0)
