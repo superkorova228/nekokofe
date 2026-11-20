@@ -20,6 +20,14 @@ var _dim: float = 0.0
 var _tween: Tween
 var _buttons_ready: bool = false
 
+var _score_lbl: Label
+var _record_row: Control
+var _record_rtl: RichTextLabel
+var _best_lbl: Label
+var _orders_lbl: Label
+var _combo_lbl: Label
+var _coins_lbl: Label
+
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -32,30 +40,54 @@ func _ready() -> void:
 
 	_card = PanelContainer.new()
 	_card.add_theme_stylebox_override("panel", UIKit.box(UIKit.CREAM, UIKit.DARK, 40, 8))
-	_card.modulate.a = 0.0   # до первой раскладки не показываем, чтобы не мигало
+	_card.modulate.a = 0.0
 	center.add_child(_card)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 18)
 	_card.add_child(col)
 
-	# заголовок появляется вместе с рамкой
 	col.add_child(UIKit.label("YOU'RE FIRED!", 96, UIKit.RED, false))
 
-	# дальше строки появляются по очереди
-	_add_row(col, UIKit.label("Score  %d" % int(data.get("score", 0)), 72, UIKit.DARK, false))
-	if bool(data.get("new_record", false)):
-		_add_row(col, _rainbow_label("NEW RECORD!", 60))
-	else:
-		_add_row(col, UIKit.label("Best  %d" % int(data.get("best", 0)), 52, UIKit.DARK, false))
-	_add_row(col, UIKit.label("Orders  %d" % int(data.get("orders", 0)), 52, UIKit.DARK, false))
-	_add_row(col, UIKit.label("Best combo  x%d" % int(data.get("combo", 0)), 52, UIKit.DARK, false))
+	_score_lbl = UIKit.label("", 72, UIKit.DARK, false)
+	_add_row(col, _score_lbl)
+
+	# строка рекорда / лучшего счёта в одном контейнере, чтобы не пересобирать ноды
+	_record_row = Control.new()
+	_record_row.custom_minimum_size = Vector2(620, 76)
+	_record_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	_record_rtl = RichTextLabel.new()
+	_record_rtl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_record_rtl.bbcode_enabled = true
+	_record_rtl.fit_content = false
+	_record_rtl.scroll_active = false
+	_record_rtl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_record_rtl.add_theme_font_override("normal_font", Fonts.main())
+	_record_rtl.add_theme_font_size_override("normal_font_size", 60)
+	_record_rtl.add_theme_color_override("font_outline_color", UIKit.DARK)
+	_record_rtl.add_theme_constant_override("outline_size", int(60 * 0.14))
+	_record_rtl.text = "[center][rainbow freq=0.35 sat=0.85 val=1.0]NEW RECORD![/rainbow][/center]"
+	_record_row.add_child(_record_rtl)
+
+	_best_lbl = UIKit.label("", 52, UIKit.DARK, false)
+	_best_lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_record_row.add_child(_best_lbl)
+
+	_add_row(col, _record_row)
+
+	_orders_lbl = UIKit.label("", 52, UIKit.DARK, false)
+	_add_row(col, _orders_lbl)
+
+	_combo_lbl = UIKit.label("", 52, UIKit.DARK, false)
+	_add_row(col, _combo_lbl)
 
 	var coin_row := HBoxContainer.new()
 	coin_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	coin_row.add_theme_constant_override("separation", 14)
 	coin_row.add_child(UIKit.coin_icon(72.0))
-	coin_row.add_child(UIKit.label("Coins  +%d" % int(data.get("coins", 0)), 52, Color("a87400"), false))
+	_coins_lbl = UIKit.label("", 52, Color("a87400"), false)
+	coin_row.add_child(_coins_lbl)
 	_add_row(col, coin_row)
 
 	col.add_child(UIKit.spacer(14))
@@ -72,6 +104,33 @@ func _ready() -> void:
 	buttons.add_child(_menu)
 	_add_row(col, buttons)
 
+	if not data.is_empty():
+		present(data)
+
+
+func present(d: Dictionary) -> void:
+	data = d
+	_score_lbl.text = "Score  %d" % int(data.get("score", 0))
+
+	var is_rec := bool(data.get("new_record", false))
+	_record_rtl.visible = is_rec
+	_best_lbl.visible = not is_rec
+	_best_lbl.text = "Best  %d" % int(data.get("best", 0))
+
+	_orders_lbl.text = "Orders  %d" % int(data.get("orders", 0))
+	_combo_lbl.text = "Best combo  x%d" % int(data.get("combo", 0))
+	_coins_lbl.text = "Coins  +%d" % int(data.get("coins", 0))
+
+	if _tween != null and _tween.is_valid():
+		_tween.kill()
+	_dim = 0.0
+	_buttons_ready = false
+	_again.disabled = true
+	_menu.disabled = true
+	_card.modulate.a = 0.0
+	for r in _rows:
+		r.modulate.a = 0.0
+	visible = true
 	_start_animation.call_deferred()
 
 
@@ -81,26 +140,9 @@ func _add_row(parent: Control, row: Control) -> void:
 	_rows.append(row)
 
 
-## NEW RECORD: буквы переливаются радугой (встроенный BBCode-эффект [rainbow])
-func _rainbow_label(text: String, font_size: int) -> RichTextLabel:
-	var r := RichTextLabel.new()
-	r.bbcode_enabled = true
-	r.fit_content = true
-	r.scroll_active = false
-	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	r.custom_minimum_size = Vector2(620, 0)
-	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	r.add_theme_font_override("normal_font", Fonts.main())
-	r.add_theme_font_size_override("normal_font_size", font_size)
-	r.add_theme_color_override("font_outline_color", UIKit.DARK)
-	r.add_theme_constant_override("outline_size", int(font_size * 0.14))
-	r.text = "[center][rainbow freq=0.35 sat=0.85 val=1.0]%s[/rainbow][/center]" % text
-	return r
-
-
 func _start_animation() -> void:
-	await get_tree().process_frame   # ждём раскладку, чтобы знать размеры
-	if not is_inside_tree():
+	await get_tree().process_frame
+	if not is_inside_tree() or not visible:
 		return
 	_card.pivot_offset = _card.size * 0.5
 	_card.scale = Vector2(0.02, 0.02)
@@ -126,7 +168,6 @@ func _enable_buttons() -> void:
 	_menu.disabled = false
 
 
-## Тап во время анимации: показать всё сразу
 func _finish_now() -> void:
 	if _tween != null and _tween.is_valid():
 		_tween.kill()
@@ -146,8 +187,10 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _process(_delta: float) -> void:
-	queue_redraw()
+	if visible:
+		queue_redraw()
 
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, _dim))
+	if visible:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, _dim))

@@ -184,14 +184,15 @@ var shake_t: float = 0.0
 var invuln_t: float = 0.0
 var ing_a: float = 1.0
 var client_t: float = 0.0
-var ui_off: float = 0.0          # отступ сверху под вырез камеры
-var snd: Sfx                     # звуки (sfx.gd)
-var ui: CanvasLayer              # слой для экранов меню/паузы/конца
+var ui_off: float = 0.0          
+var snd: Sfx                     
+var ui: CanvasLayer              
 var cam: Camera2D
 var cam_tween: Tween
-var screen: Control = null       # текущий экран (меню / пауза / конец)
-var overlay: Control = null      # настройки / туториал поверх меню
-var wake_t: float = -1.0         # анимация пробуждения кота
+var screen: Control = null  
+var game_over_ui: GameOverScreen = null     
+var overlay: Control = null      
+var wake_t: float = -1.0         
 var over_shown: bool = false
 var over_earned: int = 0
 var over_record: bool = false
@@ -229,6 +230,11 @@ func _ready() -> void:
 	ui = CanvasLayer.new()
 	ui.layer = 10
 	add_child(ui)
+	game_over_ui = GameOverScreen.new()
+	game_over_ui.visible = false
+	game_over_ui.restarted.connect(on_over_restart)
+	game_over_ui.to_menu.connect(on_over_menu)
+	ui.add_child(game_over_ui)
 	cam = Camera2D.new()
 	add_child(cam)
 	update_safe_area()
@@ -363,9 +369,11 @@ func bank_run() -> bool:
 
 # ---------- экраны: меню, настройки, туториал, конец ----------
 func clear_screens() -> void:
-	if is_instance_valid(screen):
+	if is_instance_valid(screen) and screen != game_over_ui:
 		screen.queue_free()
 	screen = null
+	if is_instance_valid(game_over_ui):
+		game_over_ui.visible = false
 	close_overlay()
 
 
@@ -465,8 +473,12 @@ func on_tutorial_finished(first_run: bool) -> void:
 func show_game_over() -> void:
 	over_shown = true
 	sfx("over")
-	var g := GameOverScreen.new()
-	g.data = {
+	if game_over_ui == null:
+		game_over_ui = GameOverScreen.new()
+		game_over_ui.restarted.connect(on_over_restart)
+		game_over_ui.to_menu.connect(on_over_menu)
+		ui.add_child(game_over_ui)
+	game_over_ui.present({
 		"score": score,
 		"best": SaveData.best_score,
 		"new_record": over_record,
@@ -474,11 +486,8 @@ func show_game_over() -> void:
 		"combo": best_combo,
 		"coins": over_earned,
 		"total": SaveData.coins,
-	}
-	g.restarted.connect(on_over_restart)
-	g.to_menu.connect(on_over_menu)
-	ui.add_child(g)
-	screen = g
+	})
+	screen = game_over_ui
 
 
 func on_over_restart() -> void:
@@ -1043,8 +1052,19 @@ func complete_order() -> void:
 		msg = "VIP  " + msg
 	if mult > 1:
 		msg += "  x%d" % mult
-	add_popup(msg, Vector2(get_viewport_rect().size.x * 0.5, 470.0 + ui_off), Color("f2b705"))
-	add_popup("+%d coins" % coin_gain, Vector2(get_viewport_rect().size.x * 0.5, 540.0 + ui_off), UIKit.GOLD)
+	var summary: String = "+%d" % gained
+	if order_vip:
+		summary = "VIP " + summary
+	if mult > 1:
+		summary += " x%d" % mult
+	summary += "  +%d coins" % coin_gain
+	add_popup(summary, Vector2(cat_x, catch_y() - 240.0), Color("f2b705"))
+
+	if order_perfect and combo > 0 and combo % HEAL_EVERY_COMBO == 0 and lives < START_LIVES:
+		lives += 1
+		sfx("heal", 1.0)
+		add_popup("+1 LIFE", Vector2(cat_x, catch_y() - 310.0), Color("5bb98c"))
+	new_order()
 	if order_perfect and combo > 0 and combo % HEAL_EVERY_COMBO == 0 and lives < START_LIVES:
 		lives += 1
 		sfx("heal", 1.0)
@@ -1069,7 +1089,7 @@ func client_left() -> void:
 func add_popup(text: String, pos: Vector2, color: Color) -> void:
 	var p := FloatText.new()
 	p.text = text
-	p.pos = pos
+	p.pos = Vector2(cat_x, catch_y() - 210.0 - popups.size() * 58.0)
 	p.color = color
 	popups.append(p)
 
