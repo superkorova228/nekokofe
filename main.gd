@@ -24,7 +24,7 @@ const DEBUG_INSET := 0.0
 const START_LIVES := 3
 const FALL_SPEED_START := 460.0
 const FALL_SPEED_MAX := 1460.0
-const FALL_SPEED_STEP := 128.0
+const FALL_SPEED_STEP := 100.0
 const SPAWN_START := 1.1
 const SPAWN_MIN := 0.6
 const SPAWN_STEP := 0.04
@@ -66,9 +66,29 @@ const AIR_EVERY_MIN := 6.0
 const AIR_EVERY_STEP := 0.3
 const AIR_WARN_TIME := 1.1
 const AIR_SPEED_K := 0.85           
-const AIR_CLEAR := 28.0             
-const AIR_HOP := 50.0               
-const AIR_HOP_LEN := 380.0          
+const AIR_HEAD_K := 0.85            
+const AIR_HOP := 30.0                              
+const AIR_HOP_LEN := 380.0
+
+# --- размер новых бочек относительно обычной (1.0 = как обычная, считая BARREL_SPRITE_K) ---
+const DROP_BARREL_SCALE := 1.0
+const AIR_BARREL_SCALE := 1.0
+
+# --- приседание (свайп вниз): кот сплющивается и пружинит обратно ---
+const DUCK_TIME := 0.6              # сколько длится приседание, сек
+const DUCK_SQUASH := 0.55           # во сколько раз кот сплющивается по высоте
+
+# --- VIP-клиент (золотая обводка): меньше терпения, больше награда ---
+const VIP_FROM_ORDER := 5           # с какого заказа могут появляться
+const VIP_CHANCE := 0.25            # шанс на каждый новый заказ
+const VIP_PATIENCE_K := 0.7         # терпение VIP относительно обычного
+const VIP_REWARD_K := 2             # во сколько раз больше очков и монет
+const VIP_GOLD := Color(1.0, 0.82, 0.2)
+
+# --- "тухлый" ингредиент (зелёная обводка): двойник нужного, ловить нельзя (-1 жизнь) ---
+const ROTTEN_FROM_ORDER := 4        # с какого заказа появляются
+const ROTTEN_CHANCE := 0.2          # шанс двойника при каждом появлении ингредиента
+const ROTTEN_GREEN := Color(0.3, 0.85, 0.25)          
 
 const SPRITE_K := 2.3             
 const CAT_SPRITE_EXTRA := 0.0     
@@ -85,6 +105,7 @@ class Item:
 	var kind: int = 0
 	var y: float = 0.0
 	var passed: bool = false
+	var rotten: bool = false
 
 class FloatText:
 	var text: String = ""
@@ -144,7 +165,12 @@ var barrel_timer: float = 2.5
 var drop_timer: float = 3.0
 var air_timer: float = 3.0
 var drop_hint_done: bool = false   
-var air_hint_done: bool = false    
+var air_hint_done: bool = false
+var duck_t: float = -1.0           
+var order_vip: bool = false
+var last_order_vip: bool = false
+var rotten_hint_done: bool = false
+var vip_hint_done: bool = false    
 var since_needed: float = 0.0
 var last_lane: int = -1
 var lane_repeat: int = 0
@@ -472,6 +498,7 @@ func reset_world() -> void:
 	barrels.clear()
 	air_barrels.clear()
 	drops.clear()
+	duck_t = -1.0
 	tower.clear()
 	lane = 1
 	cat_x = lane_cx(lane)
@@ -575,6 +602,8 @@ func _input(event: InputEvent) -> void:
 				move_lane(1 if d.x > 0.0 else -1)
 			elif d.y < 0.0:
 				try_jump()
+			else:
+				try_duck()
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_LEFT, KEY_A:
@@ -585,6 +614,8 @@ func _input(event: InputEvent) -> void:
 				try_jump()
 			KEY_SPACE:
 				try_jump()
+			KEY_DOWN, KEY_S:
+				try_duck()
 
 
 func move_lane(dir: int) -> void:
@@ -592,11 +623,28 @@ func move_lane(dir: int) -> void:
 
 
 func try_jump() -> void:
+	if duck_t >= 0.0:
+		return   # из приседания не прыгаем
 	if jump_t < 0.0:
 		jump_t = 0.0
 		sfx("jump")
 	else:
 		jump_buffer = JUMP_BUFFER
+		
+func try_duck() -> void:
+	if jump_t < 0.0 and duck_t < 0.0:
+		duck_t = 0.0
+
+
+func duck_scale() -> float:
+	if duck_t < 0.0:
+		return 1.0
+	var p: float = duck_t / DUCK_TIME
+	if p < 0.15:
+		return lerpf(1.0, DUCK_SQUASH, p / 0.15)
+	if p < 0.65:
+		return DUCK_SQUASH
+	return lerpf(DUCK_SQUASH, 1.0, ease_out_back((p - 0.65) / 0.35))
 
 
 ## состояния игры
@@ -616,6 +664,7 @@ func start_shift() -> void:
 	barrels.clear()
 	air_barrels.clear()
 	drops.clear()
+	duck_t = -1.0
 	lane = 1
 	cat_x = lane_cx(lane)
 	jump_t = -1.0
@@ -651,6 +700,16 @@ func new_order() -> void:
 	recipe_idx = 0
 	patience_max = PATIENCE_BASE + PATIENCE_PER_ITEM * n
 	patience = patience_max
+	order_vip = orders_done >= VIP_FROM_ORDER and not last_order_vip and randf() < VIP_CHANCE
+	last_order_vip = order_vip
+	if order_vip:
+		patience_max *= VIP_PATIENCE_K
+		patience = patience_max
+		if state != State.MENU:
+			add_popup("VIP!", Vector2(get_viewport_rect().size.x * 0.5, 470.0 + ui_off), VIP_GOLD)
+			if not vip_hint_done:
+				vip_hint_done = true
+				add_popup("LESS TIME, 2x REWARD", Vector2(get_viewport_rect().size.x * 0.5, 540.0 + ui_off), VIP_GOLD)
 	order_perfect = true
 	tower.clear()
 	since_needed = 1.0
@@ -685,6 +744,10 @@ func update_fx(delta: float) -> void:
 				jump_buffer = 0.0
 				sfx("jump")
 	jump_buffer = maxf(jump_buffer - delta, 0.0)
+	if duck_t >= 0.0:
+		duck_t += delta
+		if duck_t >= DUCK_TIME:
+			duck_t = -1.0
 
 	flash_t = maxf(flash_t - delta, 0.0)
 	red_t = maxf(red_t - delta, 0.0)
@@ -747,8 +810,8 @@ func update_game(delta: float) -> void:
 		var gone: bool = false
 		if not cur.passed and cur.y >= cy:
 			cur.passed = true
-			if cur.lane == lane and jump_t < 0.0:
-				on_catch(cur.kind)
+			if cur.lane == lane and jump_t < 0.0 and duck_t < 0.0:
+				on_catch(cur.kind, cur.rotten)
 				gone = true
 		if cur.y > fy + ITEM_R:
 			gone = true
@@ -832,7 +895,7 @@ func try_spawn_barrel() -> void:
 	var bs: float = barrel_speed()
 	var cy: float = catch_y()
 	for it in items:
-		if it.passed or it.kind != need:
+		if it.passed or it.rotten or it.kind != need:
 			continue
 		var arrive: float = (cy - it.y) / fs
 		if conflicts(b, it.lane, arrive, bs):
@@ -847,7 +910,7 @@ func try_spawn_barrel() -> void:
 func next_uncovered() -> int:
 	var flying: Array[Item] = []
 	for it in items:
-		if not it.passed:
+		if not it.passed and not it.rotten:
 			flying.append(it)
 	flying.sort_custom(func(a: Item, b: Item) -> bool: return a.y > b.y)
 	var j: int = recipe_idx
@@ -904,10 +967,23 @@ func spawn_item() -> void:
 	it.kind = k
 	it.y = top_h() - ITEM_R * 2.0
 	items.append(it)
+	if orders_done >= ROTTEN_FROM_ORDER and randf() < ROTTEN_CHANCE:
+		var decoy := Item.new()
+		decoy.lane = (l + 1 + randi() % 2) % 3
+		decoy.kind = recipe[recipe_idx]
+		decoy.rotten = true
+		decoy.y = it.y
+		items.append(decoy)
+		if not rotten_hint_done:
+			rotten_hint_done = true
+			add_popup("GREEN = ROTTEN!", Vector2(get_viewport_rect().size.x * 0.5, 540.0 + ui_off), ROTTEN_GREEN)
 
 
 ## правила
-func on_catch(kind: int) -> void:
+func on_catch(kind: int, rotten: bool = false) -> void:
+	if rotten:
+		on_rotten()
+		return
 	if kind == recipe[recipe_idx]:
 		sfx("catch", 1.0 + 0.12 * tower.size())
 		tower.append(kind)
@@ -929,6 +1005,19 @@ func on_catch(kind: int) -> void:
 		buzz(60)
 		add_popup("WRONG!  -%ds" % int(WRONG_PENALTY), Vector2(cat_x, catch_y() - 100.0), Color("e5484d"))
 
+func on_rotten() -> void:
+	lives -= 1
+	combo = 0
+	order_perfect = false
+	flash_t = 0.25
+	flash_col = ROTTEN_GREEN
+	red_t = 0.35
+	shake_t = 0.4
+	sfx("wrong")
+	buzz(120)
+	add_popup("ROTTEN!  -1 LIFE", Vector2(cat_x, catch_y() - 100.0), ROTTEN_GREEN)
+	if lives <= 0:
+		end_game()
 
 func complete_order() -> void:
 	var ratio: float = patience / patience_max
@@ -937,8 +1026,12 @@ func complete_order() -> void:
 	best_combo = maxi(best_combo, combo)
 	var mult: int = maxi(1, mini(combo, 5))
 	var gained: int = (recipe.size() * 40 + tip) * mult
+	if order_vip:
+		gained *= VIP_REWARD_K
 	score += gained
 	var coin_gain: int = recipe.size() + int(tip / 20.0) + (1 if order_perfect else 0)
+	if order_vip:
+		coin_gain *= VIP_REWARD_K
 	run_coins += coin_gain
 	var pool_before: int = pool_size()
 	orders_done += 1
@@ -946,6 +1039,8 @@ func complete_order() -> void:
 		add_popup("NEW INGREDIENT!", Vector2(get_viewport_rect().size.x * 0.5, 690.0 + ui_off), Color("8fd3f4"))
 	sfx("done")
 	var msg: String = "+%d" % gained
+	if order_vip:
+		msg = "VIP  " + msg
 	if mult > 1:
 		msg += "  x%d" % mult
 	add_popup(msg, Vector2(get_viewport_rect().size.x * 0.5, 470.0 + ui_off), Color("f2b705"))
@@ -1063,15 +1158,19 @@ func draw_world() -> void:
 	if state == State.MENU:
 		draw_sleep_z(top)
 
+	var head_y: float = top + CAT_H * (1.0 - duck_scale())   
 	for i in tower.size():
-		draw_ingredient(tower[i], Vector2(cat_x, top - TOWER_LIFT - cat_hat_height() - (i + 0.5) * TOWER_STEP), ITEM_R * 0.5)
+		draw_ingredient(tower[i], Vector2(cat_x, head_y - TOWER_LIFT - cat_hat_height() - (i + 0.5) * TOWER_STEP), ITEM_R * 0.5)
 	if state == State.PLAYING and recipe_idx < recipe.size():
 		ing_a = 0.35
-		draw_ingredient(recipe[recipe_idx], Vector2(cat_x, top - TOWER_LIFT - cat_hat_height() - (tower.size() + 0.5) * TOWER_STEP), ITEM_R * 0.5)
+		draw_ingredient(recipe[recipe_idx], Vector2(cat_x, head_y - TOWER_LIFT - cat_hat_height() - (tower.size() + 0.5) * TOWER_STEP), ITEM_R * 0.5)
 		ing_a = 1.0
 
 	for it in items:
-		draw_ingredient(it.kind, Vector2(lane_cx(it.lane), it.y), ITEM_R)
+		if it.rotten:
+			draw_rotten_item(it)
+		else:
+			draw_ingredient(it.kind, Vector2(lane_cx(it.lane), it.y), ITEM_R)
 		
 		draw_hazards()
 
@@ -1079,9 +1178,9 @@ func draw_world() -> void:
 func draw_cat(_left_x: float, top: float, cat_c: Color) -> void:
 	var t: float = Time.get_ticks_msec() / 1000.0
 	var sleeping: bool = state == State.MENU
-	# моргание: два несовпадающих периода, чтобы не было как у метронома
+	# моргание
 	var blinking: bool = fposmod(t, 4.3) > 4.18 or fposmod(t, 6.7) > 6.58
-	# idle-анимация: дыхание и лёгкое покачивание (во сне медленнее)
+	# idle-анимация: дыхание и лёгкое покачивание
 	var br: float = sin(t * (1.4 if sleeping else 2.6))
 	var sx: float = 1.0 - 0.018 * br
 	var sy: float = 1.0 + 0.03 * br
@@ -1092,16 +1191,17 @@ func draw_cat(_left_x: float, top: float, cat_c: Color) -> void:
 		stretch = sin(PI * jump_t / JUMP_TIME)
 	elif wake_t >= 0.0 and wake_t < WAKE_TIME:
 		stretch = sin(PI * wake_t / WAKE_TIME)
-	sx -= 0.07 * stretch
-	sy += 0.12 * stretch
+	sx -= 0.14 * stretch
+	sy += 0.24 * stretch
+	var ds: float = duck_scale()
+	sy *= ds
+	sx *= 1.0 + (1.0 - ds) * 0.45
 
 	var feet := Vector2(cat_x, top + CAT_H + CAT_FEET_SINK)
 	draw_set_transform(feet, rot, Vector2(sx, sy))
 	if cat_tex != null:
-		# размер берём от открытого спрайта: закрытый рисуется в тот же прямоугольник, кот не "дёргается"
 		var h: float = CAT_H + CAT_SPRITE_EXTRA
 		var tex: Texture2D = Skins.texture(SaveData.selected_skin, sleeping or blinking, cat_tex, cat_closed_tex)
-		# масштаб считаем от обычного кота: у скина с шляпой выше только полотно, а сам кот того же размера
 		var sz: Vector2 = tex.get_size() * (h / cat_tex.get_size().y)
 		var tint := Color.WHITE
 		if flash_t > 0.0 and flash_col != Color.WHITE:
@@ -1127,7 +1227,6 @@ func draw_cat(_left_x: float, top: float, cat_c: Color) -> void:
 			draw_circle(Vector2(32, -CAT_H + 60), 10, col_dark)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-## Насколько скин выше обычного кота (шляпа): на столько поднимается башня
 func cat_hat_height() -> float:
 	if cat_tex == null:
 		return 0.0
@@ -1183,6 +1282,8 @@ func draw_client(o: float, ratio: float) -> void:
 		jitter = sin(Time.get_ticks_msec() * 0.09) * 5.0
 	var c := Vector2(130.0 + off + jitter, 250.0 + o + bob)
 	var col: Color = Color("b8b8b8").lerp(Color("e5484d"), clampf(inverse_lerp(0.4, 0.1, ratio), 0.0, 1.0))
+	if order_vip:
+		draw_vip_halo(c)
 	if client_texs.size() > 0:
 		var tint: Color = Color.WHITE.lerp(Color(1.0, 0.45, 0.45), clampf(inverse_lerp(0.4, 0.1, ratio), 0.0, 1.0))
 		draw_fit(client_texs[client_idx], c, CLIENT_SPRITE, tint)
@@ -1207,7 +1308,7 @@ func draw_order() -> void:
 	var bubble := Rect2(240, 140 + o, vp.x - 280, 220)
 	draw_colored_polygon(PackedVector2Array([Vector2(236, 206 + o), Vector2(236, 276 + o), Vector2(184, 244 + o)]), col_dark)
 	draw_rect(bubble, Color.WHITE)
-	draw_rect(bubble, col_dark, false, 6.0)
+	draw_rect(bubble, VIP_GOLD if order_vip else col_dark, false, 10.0 if order_vip else 6.0)
 	draw_colored_polygon(PackedVector2Array([Vector2(246, 218 + o), Vector2(246, 264 + o), Vector2(206, 244 + o)]), Color.WHITE)
 
 	draw_client(o, ratio)
@@ -1338,8 +1439,8 @@ func air_speed() -> float:
 	return barrel_speed() * AIR_SPEED_K
 
 
-func air_bottom(a: AirBarrel) -> float:
-	return CAT_H + AIR_CLEAR + AIR_HOP * absf(sin(a.x / AIR_HOP_LEN * PI))
+func air_center(a: AirBarrel) -> float:
+	return CAT_H * AIR_HEAD_K + AIR_HOP * absf(sin(a.x / AIR_HOP_LEN * PI))
 
 
 func drop_arrive_time(d: DropBarrel) -> float:
@@ -1370,7 +1471,7 @@ func try_spawn_drop() -> void:
 	for l in order:
 		var ok: bool = true
 		for it in items:
-			if it.passed or it.lane != l or it.kind != need:
+			if it.passed or it.rotten or it.lane != l or it.kind != need:
 				continue
 			if absf((catch_y() - it.y) / fall_speed() - arrive) < FAIR_WINDOW:
 				ok = false
@@ -1404,7 +1505,7 @@ func try_spawn_air() -> void:
 	air_timer = maxf(AIR_EVERY_START - AIR_EVERY_STEP * (orders_done - AIR_BARREL_FROM_ORDER), AIR_EVERY_MIN)
 	if not air_hint_done:
 		air_hint_done = true
-		add_popup("DON'T JUMP!", Vector2(vp.x * 0.5, 540.0 + ui_off), Color("b388ff"))
+		add_popup("SWIPE DOWN!", Vector2(vp.x * 0.5, 540.0 + ui_off), Color("b388ff"))
 
 
 func update_drops(delta: float) -> void:
@@ -1442,7 +1543,9 @@ func update_air(delta: float) -> void:
 		else:
 			a.x += a.dir * sp * delta
 			var close: bool = absf(a.x - cat_x) < CAT_W * 0.5 + BARREL_R * 0.8
-			if not a.hit and invuln_t <= 0.0 and close and lift > air_bottom(a) - CAT_H:
+			var c: float = air_center(a)
+			var cat_top: float = CAT_H * duck_scale() + lift
+			if not a.hit and invuln_t <= 0.0 and close and lift < c + BARREL_R and cat_top > c - BARREL_R:
 				a.hit = true
 				hit_by_barrel()
 				if state != State.PLAYING:
@@ -1459,34 +1562,38 @@ func draw_hazards() -> void:
 	for d in drops:
 		var cx: float = lane_cx(d.lane)
 		if d.warn > 0.0:
+			# предупреждение: красный столбец в опасной дорожке и знак "!" сверху
 			draw_rect(Rect2(cx - lane_w * 0.5, top_h(), lane_w, fy - top_h()), Color(0.9, 0.15, 0.15, 0.10 + 0.14 * pulse()))
 			warn_triangle(Vector2(cx, top_h() + 80.0), Color(0.9, 0.2, 0.2, 0.55 + 0.45 * pulse()))
 		else:
-			draw_hazard_barrel(Vector2(cx, d.y), d.y / BARREL_R, "barrel_drop", Color(0.62, 0.68, 0.82), 0.35 if d.hit else 1.0)
+			draw_hazard_barrel(Vector2(cx, d.y), d.y / BARREL_R, "barrel_drop", Color(0.62, 0.68, 0.82), 0.35 if d.hit else 1.0, DROP_BARREL_SCALE)
 	for a in air_barrels:
-		var path_y: float = fy - (CAT_H + AIR_CLEAR + AIR_HOP * 0.5) - BARREL_R
+		var path_y: float = fy - (CAT_H * AIR_HEAD_K + AIR_HOP * 0.5)
 		if a.warn > 0.0:
+			# предупреждение: пунктир показывает путь на высоте головы, знак "пригнись" (стрелка вниз) у края входа
 			var col := Color(0.72, 0.52, 1.0, 0.6 + 0.4 * pulse())
 			draw_dashed_line(Vector2(0.0, path_y), Vector2(vp.x, path_y), col, 8.0, 22.0)
 			air_warn_sign(Vector2(80.0 if a.dir > 0 else vp.x - 80.0, path_y), Color(0.72, 0.52, 1.0, 0.6 + 0.4 * pulse()))
 		else:
-			draw_hazard_barrel(Vector2(a.x, fy - air_bottom(a) - BARREL_R), a.x / BARREL_R, "barrel_air", Color(0.75, 0.55, 1.0), 0.35 if a.hit else 1.0)
+			draw_hazard_barrel(Vector2(a.x, fy - air_center(a)), a.x / BARREL_R, "barrel_air", Color(0.75, 0.55, 1.0), 0.35 if a.hit else 1.0, AIR_BARREL_SCALE)
 
 
-func draw_hazard_barrel(pos: Vector2, rot: float, tex_name: String, tint: Color, alpha: float) -> void:
+func draw_hazard_barrel(pos: Vector2, rot: float, tex_name: String, tint: Color, alpha: float, size_k: float) -> void:
 	draw_set_transform(pos, rot, Vector2.ONE)
 	var own: Texture2D = UIKit.art_texture(tex_name)
 	var base: Texture2D = UIKit.art_texture("barrel")
 	var tc := Color(tint.r, tint.g, tint.b, alpha)
+	var diameter: float = BARREL_R * 2.0 * BARREL_SPRITE_K * size_k
+	var rr: float = BARREL_R * size_k
 	if own != null:
-		draw_fit(own, Vector2.ZERO, BARREL_R * 2.0, Color(1, 1, 1, alpha))
+		draw_fit(own, Vector2.ZERO, diameter, Color(1, 1, 1, alpha))
 	elif base != null:
-		draw_fit(base, Vector2.ZERO, BARREL_R * 2.0, tc)
+		draw_fit(base, Vector2.ZERO, diameter, tc)
 	else:
-		draw_circle(Vector2.ZERO, BARREL_R, Color(0.23, 0.14, 0.09, alpha))
-		draw_arc(Vector2.ZERO, BARREL_R - 3.0, 0.0, TAU, 40, tc, 6.0)
-		draw_line(Vector2(-BARREL_R * 0.7, 0.0), Vector2(BARREL_R * 0.7, 0.0), tc, 5.0)
-		draw_line(Vector2(0.0, -BARREL_R * 0.7), Vector2(0.0, BARREL_R * 0.7), tc, 5.0)
+		draw_circle(Vector2.ZERO, rr, Color(0.23, 0.14, 0.09, alpha))
+		draw_arc(Vector2.ZERO, rr - 3.0, 0.0, TAU, 40, tc, 6.0)
+		draw_line(Vector2(-rr * 0.7, 0.0), Vector2(rr * 0.7, 0.0), tc, 5.0)
+		draw_line(Vector2(0.0, -rr * 0.7), Vector2(0.0, rr * 0.7), tc, 5.0)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -1500,5 +1607,26 @@ func warn_triangle(c: Vector2, col: Color) -> void:
 func air_warn_sign(c: Vector2, col: Color) -> void:
 	draw_circle(c, 58.0, col)
 	draw_arc(c, 58.0, 0.0, TAU, 32, col_dark, 6.0)
-	draw_polyline(PackedVector2Array([c + Vector2(-26, 12), c + Vector2(0, -18), c + Vector2(26, 12)]), Color.WHITE, 9.0)
-	draw_line(c + Vector2(-40, -40), c + Vector2(40, 40), Color(0.9, 0.15, 0.15), 9.0)
+	draw_polyline(PackedVector2Array([c + Vector2(-26, -14), c + Vector2(0, 16), c + Vector2(26, -14)]), Color.WHITE, 9.0)
+	
+func draw_rotten_item(it: Item) -> void:
+	var pos := Vector2(lane_cx(it.lane), it.y)
+	var g: Color = ROTTEN_GREEN
+	draw_circle(pos, ITEM_R + 18.0, Color(g.r, g.g, g.b, 0.28))
+	draw_arc(pos, ITEM_R + 14.0, 0.0, TAU, 40, g, 7.0)
+	var tex: Texture2D = ing_tex.get(it.kind)
+	if tex != null:
+		draw_fit(tex, pos, ITEM_R * SPRITE_K, Color(0.82, 1.0, 0.78))
+	else:
+		draw_ingredient(it.kind, pos, ITEM_R)
+	var t: float = Time.get_ticks_msec() / 1000.0
+	for k in 3:
+		var pts := PackedVector2Array()
+		for n in 7:
+			pts.append(Vector2(pos.x + (k - 1) * 26.0 + sin(t * 5.0 + n * 0.9 + k) * 6.0, pos.y - ITEM_R - 24.0 - n * 7.0))
+		draw_polyline(pts, Color(g.r, g.g, g.b, 0.85), 4.0)
+		
+func draw_vip_halo(c: Vector2) -> void:
+	var r: float = CLIENT_SPRITE * 0.5 + 8.0
+	draw_arc(c, r, 0.0, TAU, 48, Color(VIP_GOLD.r, VIP_GOLD.g, VIP_GOLD.b, 0.7 + 0.3 * pulse()), 10.0)
+	text_at("VIP", Vector2(c.x - 100.0, c.y + r + 12.0), 40, VIP_GOLD, HORIZONTAL_ALIGNMENT_CENTER, 200.0, true)
